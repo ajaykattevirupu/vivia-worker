@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Worker needs full FFmpeg setup
+RUN apt-get update && \
+    apt-get install -y ffmpeg libsm6 libxext6 libxrender-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy worker code
+COPY worker/ ./worker/
+
+# Worker may need shared models/config
+COPY app/config.py ./app/
+COPY app/models ./app/models
+COPY app/utils ./app/utils
+
+# Start ONLY worker service
+CMD ["sh", "-c", "uvicorn worker.processor:app --host 0.0.0.0 --port $PORT"]
