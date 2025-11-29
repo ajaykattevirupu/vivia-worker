@@ -1,53 +1,63 @@
+import os
 import openai
-import base64
-import requests
+import json
 
-openai.api_key = settings.OPENAI_API_KEY
+# Load from environment (Railway → Variables)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+openai.api_key = OPENAI_API_KEY
+
 
 class CaptionGenerator:
     async def generate_captions(self, image_url: str) -> list[str]:
-        """Generate AI captions using GPT-4 Vision"""
+        """Generate AI captions using GPT-4o Vision."""
         try:
-            # Describe the image first
+            # Step 1: Describe the image using GPT-4o Vision
             description = await self.describe_image(image_url)
-            
-            # Generate captions
-            prompt = f"""Based on this image: {description}
-            
-Generate 5 creative, engaging social media captions.
-- Use emojis appropriately
-- Keep under 150 characters
-- Make them trendy and shareable
-- Add relevant hashtags
 
-Return as JSON array of strings."""
+            # Step 2: Ask GPT-4o to write 5 captions
+            prompt = f"""
+Based on this image description: "{description}"
+
+Generate 5 creative, engaging social media captions.
+Requirements:
+- Use emojis
+- Keep under 150 characters
+- Make it aesthetic, trendy, and viral-ready
+- Add relevant hashtags
+- Return output ONLY as a JSON array of strings
+            """
 
             response = openai.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a creative social media expert."},
+                    {"role": "system", "content": "You are a creative social media caption expert."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.9,
-                max_tokens=500
+                max_tokens=500,
             )
-            
-            import json
-            captions = json.loads(response.choices[0].message.content)
+
+            raw = response.choices[0].message["content"]
+
+            # Parse JSON array
+            captions = json.loads(raw)
+
             return captions
-            
+
         except Exception as e:
-            # Fallback captions
+            print("Caption error:", str(e))
             return [
-                "✨ Captured this moment",
-                "🌟 Living my best life",
-                "💫 New vibes",
-                "🔥 Feeling this",
-                "💯 Pure aesthetic"
+                "✨ Capturing the vibe",
+                "🔥 Living in the moment",
+                "💫 Aesthetic energy",
+                "🌟 Pure mood",
+                "📸 Vibes only"
             ]
-    
+
+
     async def describe_image(self, image_url: str) -> str:
-        """Describe image using GPT-4 Vision"""
+        """Use GPT-4o Vision to describe the image."""
         try:
             response = openai.chat.completions.create(
                 model="gpt-4o",
@@ -55,13 +65,16 @@ Return as JSON array of strings."""
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "Describe this image in detail for caption generation."},
+                            {"type": "text", "text": "Describe this image clearly for caption generation."},
                             {"type": "image_url", "image_url": {"url": image_url}}
                         ]
                     }
                 ],
                 max_tokens=300
             )
-            return response.choices[0].message.content
-        except:
-            return "A beautiful moment captured"
+
+            return response.choices[0].message["content"]
+
+        except Exception as e:
+            print("Vision error:", str(e))
+            return "A beautifully captured moment"
