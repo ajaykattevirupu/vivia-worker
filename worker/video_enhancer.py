@@ -6,10 +6,21 @@ import tempfile
 import replicate
 import requests
 from supabase import create_client
+import random
+
 
 class VideoEnhancer:
     def __init__(self):
-        self.supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+
+        # Worker loads environment variables directly from Railway
+        SUPABASE_URL = os.getenv("SUPABASE_URL")
+        SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            raise ValueError("Supabase environment variables missing in worker")
+
+        self.supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
         self.music_library = [
             "https://example.com/music/upbeat1.mp3",
             "https://example.com/music/chill1.mp3",
@@ -25,34 +36,34 @@ class VideoEnhancer:
         stabilized = os.path.join(temp_dir, f"{output_id}_stabilized.mp4")
         await self.stabilize_video(video_path, stabilized)
         
-        # Step 2: Color grading
+        # Step 2: Color Grading
         graded = os.path.join(temp_dir, f"{output_id}_graded.mp4")
         await self.apply_color_grade(stabilized, graded)
         
-        # Step 3: Upscale (using Replicate)
+        # Step 3: Upscale (Replicate)
         upscaled = os.path.join(temp_dir, f"{output_id}_upscaled.mp4")
         await self.upscale_video(graded, upscaled)
         
-        # Step 4: Add transitions
+        # Step 4: Add Transitions
         final = os.path.join(temp_dir, f"{output_id}_final.mp4")
         await self.add_transitions(upscaled, final)
         
-        # Step 5: Reframe to 9:16
+        # Step 5: Reframe to Mobile (9:16)
         mobile = os.path.join(temp_dir, f"{output_id}_mobile.mp4")
         await self.reframe_to_mobile(final, mobile)
         
-        # Step 6: Generate thumbnail
+        # Step 6: Thumbnail
         thumbnail = os.path.join(temp_dir, f"{output_id}_thumb.jpg")
         await self.generate_thumbnail(mobile, thumbnail)
         
-        # Step 7: Select music
+        # Step 7: Music selection
         music_url = await self.select_music(mobile)
         
-        # Step 8: Upload to Supabase
-        media_url = await self.upload_to_storage(mobile, user_id, "video")
-        thumbnail_url = await self.upload_to_storage(thumbnail, user_id, "thumbnail")
+        # Step 8: Upload
+        media_url = await self.upload_to_storage(mobile, user_id, bucket="processed_media")
+        thumbnail_url = await self.upload_to_storage(thumbnail, user_id, bucket="thumbnails")
         
-        # Cleanup
+        # Cleanup temp files
         for file in [stabilized, graded, upscaled, final, mobile, thumbnail]:
             if os.path.exists(file):
                 os.remove(file)
@@ -65,7 +76,6 @@ class VideoEnhancer:
         }
     
     async def stabilize_video(self, input_path: str, output_path: str):
-        """Stabilize shaky footage"""
         cmd = [
             'ffmpeg', '-i', input_path,
             '-vf', 'deshake',
@@ -76,8 +86,6 @@ class VideoEnhancer:
         subprocess.run(cmd, check=True, capture_output=True)
     
     async def apply_color_grade(self, input_path: str, output_path: str):
-        """Apply cinematic color grading"""
-        # Using LUT (Look-Up Table)
         lut_filter = "curves=vintage"
         
         cmd = [
@@ -90,8 +98,6 @@ class VideoEnhancer:
         subprocess.run(cmd, check=True, capture_output=True)
     
     async def upscale_video(self, input_path: str, output_path: str):
-        """Upscale video using AI"""
-        # Using Replicate's Real-ESRGAN
         try:
             with open(input_path, 'rb') as f:
                 output = replicate.run(
@@ -103,12 +109,12 @@ class VideoEnhancer:
                     }
                 )
             
-            # Download result
-            response = requests.get(output)
+            res = requests.get(output)
             with open(output_path, 'wb') as f:
-                f.write(response.content)
-        except:
-            # Fallback to simple upscale
+                f.write(res.content)
+        
+        except Exception:
+            # fallback upscale
             cmd = [
                 'ffmpeg', '-i', input_path,
                 '-vf', 'scale=1080:1920:flags=lanczos',
@@ -118,7 +124,6 @@ class VideoEnhancer:
             subprocess.run(cmd, check=True, capture_output=True)
     
     async def add_transitions(self, input_path: str, output_path: str):
-        """Add smooth transitions"""
         cmd = [
             'ffmpeg', '-i', input_path,
             '-vf', 'fade=in:0:30,fade=out:st=8:d=1',
@@ -129,7 +134,6 @@ class VideoEnhancer:
         subprocess.run(cmd, check=True, capture_output=True)
     
     async def reframe_to_mobile(self, input_path: str, output_path: str):
-        """Reframe to 9:16 aspect ratio"""
         cmd = [
             'ffmpeg', '-i', input_path,
             '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920',
@@ -140,7 +144,6 @@ class VideoEnhancer:
         subprocess.run(cmd, check=True, capture_output=True)
     
     async def generate_thumbnail(self, video_path: str, output_path: str):
-        """Generate video thumbnail"""
         cmd = [
             'ffmpeg', '-i', video_path,
             '-ss', '00:00:01',
@@ -151,18 +154,12 @@ class VideoEnhancer:
         subprocess.run(cmd, check=True, capture_output=True)
     
     async def select_music(self, video_path: str) -> str:
-        """Select appropriate background music"""
-        # Analyze video tempo using librosa (simplified)
-        import random
         return random.choice(self.music_library)
     
-    async def upload_to_storage(self, file_path: str, user_id: str, media_type: str) -> str:
-        """Upload to Supabase storage"""
+    async def upload_to_storage(self, file_path: str, user_id: str, bucket: str) -> str:
         filename = f"{user_id}/{uuid.uuid4()}.{Path(file_path).suffix[1:]}"
-        bucket = "processed_media" if media_type == "video" else "thumbnails"
         
         with open(file_path, 'rb') as f:
             self.supabase.storage.from_(bucket).upload(filename, f)
-        
-        url = self.supabase.storage.from_(bucket).get_public_url(filename)
-        return url
+
+        return self.supabase.storage.from_(bucket).get_public_url(filename)
