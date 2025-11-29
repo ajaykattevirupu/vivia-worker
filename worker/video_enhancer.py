@@ -6,7 +6,6 @@ import tempfile
 import replicate
 import requests
 from supabase import create_client
-from app.config import settings
 
 class VideoEnhancer:
     def __init__(self):
