@@ -6,7 +6,7 @@ import replicate
 import requests
 from PIL import Image, ImageEnhance, ImageFilter
 from supabase import create_client
-from app.config import settings
+
 
 class PhotoEnhancer:
     def __init__(self):
